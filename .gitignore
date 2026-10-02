@@ -1,0 +1,17 @@
+.env
+.env.*
+!.env.example
+*.log
+backup/
+backups/
+secrets/
+credentials/
+__pycache__/
+*.py[cod]
+.DS_Store
+.venv/
+.cache/
+.runtime/
+*.dump
+*.tar
+*.tar.gz
