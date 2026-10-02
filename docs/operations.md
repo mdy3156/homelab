@@ -114,6 +114,16 @@ PostgreSQLの既存ロールpasswordはSQLで変更し、接続側の `.env` を
 SeaweedFSは既存の永続化credentialへの反映方法を該当版の公式手順で確認し、旧credentialが拒否されることまで検証します。
 secretをコマンドライン・shell history・Git・公開ログに出さない方法で実施してください。
 
+## MLflowのStart Demo
+
+初期検証の後、Start Demoでscorerのtelemetry/import待機と内部SDKのproxy artifact解決エラーが見つかり、修正しました。
+現在はtelemetryを無効化し、評価workerを2に制限し、内部SDK用artifact adapterをimageに含めています。
+通常のHTTP tracking clientは既存のartifact proxyを使います。
+`MLflow Demo` experimentにはデモtrace、評価、prompt等のサンプルを保存しています。
+Start Demoを再度押すと既存データを返し、重複生成を避けます。
+MLflowを更新する際はimage build内の回帰テストに加え、デモAPIの完了と通常のrun/artifactの操作も確認します。
+以前の画面が待機表示のままなら、修正版の起動後にブラウザーを再読み込みしてください。
+
 ## 今後の追加
 
 FastAPIやBotは独立したComposeプロジェクトとして追加できます。

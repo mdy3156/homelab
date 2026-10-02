@@ -30,11 +30,14 @@ artifacts bridgeにはMLflowとSeaweedFSだけを接続します。MLflowはDB�
 | MLflow base | `ghcr.io/mlflow/mlflow:v3.16.1` | [3.16.1 release](https://github.com/mlflow/mlflow/releases/tag/v3.16.1)、[公式image](https://mlflow.org/docs/2.22.0/docker) |
 | Uptime Kuma | `louislam/uptime-kuma:2.5.5` | [2.5.5 release](https://github.com/louislam/uptime-kuma/releases/tag/2.5.5)、[install](https://github.com/louislam/uptime-kuma/wiki/%F0%9F%94%A7-How-to-Install) |
 
-MLflow派生imageのローカルtagは `homelab/mlflow:3.16.1-r3`。
+MLflow派生imageのローカルtagは `homelab/mlflow:3.16.1-r4`。
 base imageに内包されるPython依存はbase digestで固定します。
 追加する `psycopg2-binary`・`boto3` とその依存は公式PyPI wheelのversion/hashを `requirements.lock` に固定しました。
 psycopg2 wheelはこのVM向けのCPython 3.11 / Linux amd64です。他architectureへ移植する場合は対応wheelのhashを再確認します。
 build時の `pip check` によりbaseとの依存競合を検出します。
+サーバー内部SDKのproxy artifact URIを解決するローカルPythonパッケージを、[MLflow公式のartifact repository拡張](https://mlflow.org/docs/latest/ml/plugins/) として追加しています。
+サーバーのartifact-serving環境と設定済みbackend URIが一致し、proxy URIに別ホストがない場合だけ、既存のMLflow resolverで保存先を解決します。
+HTTP SDKクライアントには標準のartifact proxy実装を返します。6件の回帰テストをimage buildに含め、private resolverを使うためMLflow更新時にも検査します。
 
 ## 保存と復旧
 
@@ -65,6 +68,9 @@ MLflowは小規模LAN運用向けに1 HTTP workerを使用します。
 MLflow 3.16のデフォルトjob executionは複数のGenAI job consumerを起動するため、`MLFLOW_SERVER_ENABLE_JOB_EXECUTION=false` で無効化します。
 今回のexperiment・param・metric・artifact保存には不要で、実測で1GiB上限への到達とswapが発生したためこの設定を採用しました。
 GenAIの非同期jobを使う場合は、必要なメモリとconsumer構成を別途設計して有効化します。
+Start Demoはjob consumerを使わないローカル評価として動作し、`MLFLOW_GENAI_EVAL_MAX_WORKERS=2` で並列数を制限します。
+デモscorerのtelemetry処理でjobモジュールのimport待機を実環境で確認したため、[公式の設定](https://mlflow.org/docs/latest/community/usage-tracking/) で `MLFLOW_DISABLE_TELEMETRY=true` としています。
+この設定は実験・trace・評価結果の保存を無効化しません。通常のMLflow trackingは維持します。
 
 PostgreSQLはUID999、他はUID1000で実行し、capabilityを全削除します。
 `no-new-privileges`、各serviceの10MB × 3のlog rotationを設定します。

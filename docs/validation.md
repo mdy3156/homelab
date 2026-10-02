@@ -41,6 +41,7 @@ mdyのdockerグループ追加を確認し、既存セッションでは `sg doc
 | PostgreSQL healthy / MLflow SQL接続 / LAN5432非公開 | 成功、実際のPortBindingsなし・LAN IPへのTCP接続失敗 |
 | SeaweedFS healthy / unsigned S3拒否 / signed CRUD / bucket | 成功、未署名list/read/write拒否、内部endpointとLAN IP endpointでCRUD成功 |
 | MLflow HTTP / experiment / param / metric / artifact / SQLとS3照合 | 成功、SQLのruns/params/metricsとS3実object内容を照合 |
+| MLflow Start Demo / trace・評価 / 再操作 | 成功、修正後はHTTP200・約3.57秒で完了、再操作はexists・約0.06秒 |
 | Uptime Kuma HTTP / health | 成功、SQLiteのkuma.db/db-config.jsonを初期化、管理者設定は初回UIで実施 |
 | owner/permission、実際の公開portと安全設定 | 成功、全service非root・capability全削除・socket mountなし |
 | backup作成・checksum・dump読み取り・サービス復帰 | 成功、最終SQLiteを含む全data/config、0700/0600、停止・再開後のrun/objectも確認 |
@@ -55,7 +56,7 @@ mdyのdockerグループ追加を確認し、既存セッションでは `sg doc
 | --- | --- | --- | --- |
 | homelab-ml-platform-postgres-1 | postgres:18.6-bookworm | healthy | なし |
 | homelab-ml-platform-seaweedfs-1 | chrislusf/seaweedfs:4.48 | healthy | 192.168.0.8:8333/tcp |
-| homelab-ml-platform-mlflow-1 | homelab/mlflow:3.16.1-r3 | healthy | 192.168.0.8:5000/tcp |
+| homelab-ml-platform-mlflow-1 | homelab/mlflow:3.16.1-r4 | healthy | 192.168.0.8:5000/tcp |
 | homelab-monitoring-uptime-kuma-1 | louislam/uptime-kuma:2.5.5 | healthy | 192.168.0.8:3001/tcp |
 
 イメージに記載されたEXPOSE portはDocker内部の表示であり、master/filer/volume portをホストにpublishしていません。
@@ -69,9 +70,11 @@ ssでも新規listenerは上記3つのみを確認しました。既存SSH・エ
 - artifact: `2/2982be483d5c45c68c8859bcc28ee5c2/artifacts/probe.txt`。
 - S3永続probe: `homelab-validation/persistence/2982be483d5c45c68c8859bcc28ee5c2.txt`。
 - bucket: `mlflow-artifacts`。
-- 最終backup: `/srv/homelab/backups/20261002T190913Z.KclGiD`（snapshot名はUTC）。
+- 最終backup: `/srv/homelab/backups/20261002T210520Z.Nx445f`（snapshot名はUTC、Start Demo修正・生成後の状態）。
 - 初回backupはKumaのDB初期化前の状態です。対策前の `/srv/homelab/backups/20261002T180451Z.IdqlKs` はSQLiteと最終Compose設定を含みます。
-- 最終backupは再起動後の復旧データとIPv4待機helper/systemd drop-inも含み、全checksum・0700/0600・実.envの一致を再確認しました。
+- `/srv/homelab/backups/20261002T190913Z.KclGiD` はVM再起動後の復旧データとIPv4待機helper/systemd drop-inを含みます。
+- `/srv/homelab/backups/20261002T205009Z.poqS8H` はStart Demo修正中の、telemetry設定変更前の状態を保存しています。
+- 最終backupはr4 image用のCompose設定・artifactプラグインとデモ生成後のSQL/S3データを含み、全checksum・0700/0600・実.envの一致を再確認しました。
 - 最終backupのCOMPLETE、checksum、SQL dump TOC、SeaweedFS全data、Kuma SQLite、config/.envの一致、owner-only権限を確認しました。
 - backupのための停止・再開、およびMLflowコンテナ再作成後も既存runとS3データが残ることを確認しました。
 - 同一SSD内のコピーなので、独立した場所へのバックアップと復元演習は今後の作業です。
@@ -125,9 +128,32 @@ MLflowのdatabase/artifacts、SeaweedFSのartifacts、Kumaのmonitoring network 
 検証後のホストはroot filesystem約94GiB空き、メモリavailable約2.8GiB、swap使用0でした。
 別LAN端末からの到達確認、Kuma管理者の初回作成、独立ストレージへのバックアップと完全restore演習は今後の作業です。
 
+## Start Demoの待機とartifact解決の修正
+
+通常のtracking検証後、ユーザーのStart Demo操作で画面が待機したため、ボタンと同じ生成APIを調査しました。
+MLflow本体はhealthyで、HTTP・通常のexperiment APIは応答していましたが、デモの評価処理が完了していませんでした。
+scorerのtelemetry処理がjob関連モジュールを並列importし、スレッドのスタックにimport lockの待機を確認しました。
+加えて、サーバー内部SDKがSQL tracking URIでproxy artifact URIを扱うと、HTTP tracking URIを要求するエラーが発生していました。
+
+telemetryを公式設定で無効化し、ローカル評価workerを2に制限しました。
+サーバー内部だけでproxy URIを実S3保存先へ解決するartifact repositoryプラグインを追加し、通常のHTTPクライアントは標準のproxy動作を維持しています。
+image buildで6件の回帰テストとpip checkが成功しました。データの削除やDBの初期化は行っていません。
+
+- `POST /ajax-api/3.0/mlflow/demo/generate` がHTTP200、約3.57秒で完了しました。
+- 再操作はHTTP200・`exists`、約0.06秒で既存のexperiment `3` を返しました。
+- 元の42件のtrace payloadとspanを取得でき、3件の評価runがFINISHED、各runに4件のmetricを確認しました。
+- 内部artifactプラグインを実S3接続で検証し、upload/list/download/deleteが成功しました。検証で作成した一時objectだけを削除しました。
+- 既存の通常run `2982be483d5c45c68c8859bcc28ee5c2` のSQL param/metric、HTTP経由のartifactとS3実objectも一致しました。
+- 最終backupによる停止・再開後も4serviceがhealthyで、通常runの永続化検証が成功しました。Start Demoは約0.12秒で既存デモを返しました。
+- 修正後のMLflowコンテナはOOM killなし、restart count 0で、以前のartifact URIエラーは再発していません。
+
+非secretの検証記録をGit除外の `.runtime/demo-validation.json` に0600で保存しています。
+VM全体の再起動検証は上記r3 image時の結果です。r4 imageでは最終backup時のコンテナ停止・再開を検証しました。
+今回の修正でSSH・ネットワーク・Dockerの起動待機設定は変更していません。
+
 ## 作成したファイル
 
-以下29ファイルをローカルGitで管理します。remote設定・pushは実施していません。
+以下32ファイルをローカルGitで管理します。remote設定・pushは実施していません。
 
 ```text
 .gitignore
@@ -136,6 +162,9 @@ compose/ml-platform/.dockerignore
 compose/ml-platform/.env.example
 compose/ml-platform/Dockerfile
 compose/ml-platform/README.md
+compose/ml-platform/artifact-proxy/homelab_artifact_proxy.py
+compose/ml-platform/artifact-proxy/pyproject.toml
+compose/ml-platform/artifact-proxy/test_artifact_proxy.py
 compose/ml-platform/compose.yml
 compose/ml-platform/entrypoint.py
 compose/ml-platform/healthcheck.py

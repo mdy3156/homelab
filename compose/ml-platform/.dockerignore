@@ -3,3 +3,7 @@
 !requirements.lock
 !entrypoint.py
 !healthcheck.py
+!artifact-proxy/
+!artifact-proxy/pyproject.toml
+!artifact-proxy/homelab_artifact_proxy.py
+!artifact-proxy/test_artifact_proxy.py

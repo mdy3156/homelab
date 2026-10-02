@@ -85,7 +85,7 @@ services:
 
   mlflow:
     <<: *common
-    image: homelab/mlflow:3.16.1-r3
+    image: homelab/mlflow:3.16.1-r4
     build:
       context: .
       dockerfile: Dockerfile
@@ -108,6 +108,10 @@ services:
       MLFLOW_ENABLE_PROXY_MULTIPART_UPLOAD: "false"
       # Tracking only: default GenAI job consumers are unnecessary on this VM.
       MLFLOW_SERVER_ENABLE_JOB_EXECUTION: "false"
+      # Avoid a concurrent import deadlock in demo scorer telemetry on 3.16.1.
+      MLFLOW_DISABLE_TELEMETRY: "true"
+      # Bound the demo's local evaluation concurrency on this small VM.
+      MLFLOW_GENAI_EVAL_MAX_WORKERS: "2"
       HOME: /tmp
       PYTHONDONTWRITEBYTECODE: "1"
     depends_on:

@@ -24,11 +24,16 @@ WebDAV、Iceberg、Lance、Admin UIは無効化します。mini内部のadmin/ma
 SeaweedFS healthcheckはmasterとfilerの応答を確認し、MLflow healthcheckで署名付きS3 bucketアクセスも確認します。
 
 MLflowの公式GHCR imageをdigestで固定し、PostgreSQL driverとS3 clientを `requirements.lock` のSHA256で追加します。
+派生imageは `homelab/mlflow:3.16.1-r4` です。
 HTTP workerは1とし、今回使わないGenAI job executionを無効化してメモリ使用を抑えます。
-build時に `pip check` とimportを実行します。build contextは必要なソースだけに限定し、secretはimageに入れません。
+Start Demoのscorer実行時に発生したimport待機を避けるため、`MLFLOW_DISABLE_TELEMETRY=true` とし、ローカル評価のworkerを2に制限します。
+`artifact-proxy/` の小さなプラグインで、サーバー内部SDKがSQL tracking URIを使う場合だけproxy artifact URIを実際のS3保存先へ解決します。
+通常のHTTPクライアントは従来どおりMLflow経由でartifactを操作します。
+build時に `pip check`、import、artifactプラグインの6件の回帰テストを実行します。build contextは必要なソースだけに限定し、secretはimageに入れません。
 `entrypoint.py` は毎回SQL/S3を待ち、passwordをURLエスケープしてbackend URIを環境変数に設定します。
 `--serve-artifacts --artifacts-destination s3://mlflow-artifacts` により、クライアントはS3 credentialを持たずにartifactを利用できます。
 新しいexperimentのURIは `mlflow-artifacts:/...` です。 `--default-artifact-root s3://...` を併用しません。
+Start Demoで生成したデータは `MLflow Demo` experimentに保存され、再度押した場合は既存デモを開きます。
 
 ```python
 import mlflow
