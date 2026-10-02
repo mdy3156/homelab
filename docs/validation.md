@@ -31,7 +31,7 @@
 管理者による `scripts/provision-host.sh` 実行後、Docker Engine Community 29.8.2 / Compose 5.6.0を確認しました。
 公式APT repositoryのsuiteはresoluteで、Docker/containerdはenabled・activeです。
 mdyのdockerグループ追加を確認し、既存セッションでは `sg docker` でsudoなしのversion/compose/psを検証しました。
-SSH再接続後は通常の `docker` コマンドへグループ追加が反映されます。
+再起動・SSH再接続後は通常の `docker` コマンドでversion/compose/psを実行でき、mdyのdockerグループ反映を確認しました。
 
 | 検証 | 状態 |
 | --- | --- |
@@ -44,8 +44,8 @@ SSH再接続後は通常の `docker` コマンドへグループ追加が反映�
 | Uptime Kuma HTTP / health | 成功、SQLiteのkuma.db/db-config.jsonを初期化、管理者設定は初回UIで実施 |
 | owner/permission、実際の公開portと安全設定 | 成功、全service非root・capability全削除・socket mountなし |
 | backup作成・checksum・dump読み取り・サービス復帰 | 成功、最終SQLiteを含む全data/config、0700/0600、停止・再開後のrun/objectも確認 |
-| daemon再起動後の自動復旧・既存run/object永続化 | 成功（03:20 JST、journalとdaemon-restart-passed・smoke結果を確認） |
-| VM reboot後の自動復旧・既存run/object永続化 | 初回はLAN公開復元失敗。手動復旧後のデータ永続化は成功。起動待機対策を準備し、再検証待ち |
+| daemon再起動後の自動復旧・既存run/object永続化 | 成功（03:20 JSTと対策適用後04:23 JST、journalとdaemon-restart-passed・smoke結果を確認） |
+| VM reboot後の自動復旧・既存run/object永続化 | 成功（対策適用後04:24 JST起動、同一4コンテナが自動復旧、SQL/S3内容一致。初回失敗の経緯は下記） |
 | 別LAN端末からの到達 | 未実施 |
 | 別ストレージからの完全restore演習 | 未実施 |
 
@@ -87,7 +87,7 @@ HTTP workerは1です。将来GenAI非同期jobを有効化する場合はconsum
 しかし続くVM起動時、systemd-networkdはDHCPから192.168.0.2を取得し、03:20:47のDockerログにLAN3portの `cannot assign requested address` が記録されました。
 network-online.target到達だけでは指定の192.168.0.8の存在を保証できないことが実環境で判明しました。
 
-再接続時のboot IDは `fdc1b938-5db8-45af-9665-fda219165fad`。現在のIPv4は192.168.0.8です。
+不具合調査時のboot IDは `fdc1b938-5db8-45af-9665-fda219165fad`。この時点のIPv4は192.168.0.8でした。
 Docker/containerdはenabled・active、PostgreSQLはhealthyでしたが、SeaweedFS/Kumaの実networkと公開portがなく、MLflowもartifacts networkを失っていました。
 03:54起動時のDockerはDB networkだけを復元しており、再起動前の公開network attachmentは戻っていませんでした。
 この状態を自動復旧成功とは判定していません。
@@ -99,8 +99,31 @@ PostgreSQLを保持し、SeaweedFS・MLflow・KumaをComposeから再作成し�
 Dockerだけに適用するIPv4待機helperとsystemd drop-inを作成しました。
 IP存在時の成功、不在時のタイムアウト、不正timeoutの拒否、全shellのbash構文/ShellCheck、両Composeのconfig検査が成功しました。
 healthcheckはHostConfigの設定値に加え、NetworkSettingsの実公開portとnetwork attachmentも検査します。
-対策のroot所有ファイルへの導入と、その状態でのdaemon/VM再起動は管理者による検証スクリプト実行待ちです。
-再起動後の初回検証では `start/up` を使わず、boot ID・同一container ID・公開network・既存データを確認します。
+
+## 対策適用後のdaemon・VM再起動検証
+
+管理者が `verify-restart-and-reboot.sh` を実行し、helperをroot:root/0755、systemd drop-inをroot:root/0644で導入しました。
+インストール先の実ファイルとrepoの内容が一致することを確認しました。
+04:23:53 JSTのdaemon再起動時は、IPv4確認の成功ログ後にdockerdが起動し、04:24:06に既存run/objectの検証が成功しました。
+続くVM再起動の前後でboot IDが以下のように変わりました。
+
+- 再起動前: `fdc1b938-5db8-45af-9665-fda219165fad`。
+- 再起動後: `0fe8d6a5-104f-43ac-876b-c899ea542761`。
+
+VM起動ログは04:24:22 JSTに指定IPv4の確認成功、04:24:23にdockerd起動と全networkへの再接続を記録しています。
+LAN3portのbind失敗やコンテナ起動失敗は再発していません。
+Docker/containerdはenabled・activeで、4コンテナのIDは再起動前のbaselineと完全に一致しました。
+各コンテナのStartedAtはこのVM起動直後で、全serviceがhealthy、OOM killなしです。
+再接続後にコンテナの `start/up/recreate` を実行せず、`wait-healthy.sh` による読み取り確認で正常化を確認しました。
+
+実際のLAN公開は192.168.0.8の5000/8333/3001のみで、PostgreSQL5432は非公開です。
+MLflowのdatabase/artifacts、SeaweedFSのartifacts、Kumaのmonitoring network attachmentを実状態で確認しました。
+再起動前の同一runでSQL param/metric、MLflow経由のartifact取得、S3実object・永続probeを照合し、全て一致しました。
+未署名S3の拒否、KumaのHTTPと永続SQLite/db-configファイルも確認しました。
+非secretの確認結果はGit除外の `.runtime/reboot-validation.json` に保存します。
+
+検証後のホストはroot filesystem約94GiB空き、メモリavailable約2.8GiB、swap使用0でした。
+別LAN端末からの到達確認、Kuma管理者の初回作成、独立ストレージへのバックアップと完全restore演習は今後の作業です。
 
 ## 作成したファイル
 
