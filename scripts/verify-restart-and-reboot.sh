@@ -13,6 +13,37 @@ run_id=$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1]))["run_id
 [[ $run_id =~ ^[a-f0-9]{32}$ ]] || { echo 'Invalid baseline run ID.' >&2; exit 1; }
 runuser -u mdy -- "$REPO_ROOT/scripts/healthcheck.sh"
 
+# Ensure the configured LAN IPv4 exists before dockerd restores published ports.
+bash "$REPO_ROOT/scripts/install-boot-readiness.sh"
+# Record the baseline for this actual reboot, including container identities.
+runuser -u mdy -- python3 - "$baseline" <<'PY'
+import json, os, subprocess, sys
+from datetime import datetime
+from zoneinfo import ZoneInfo
+path = sys.argv[1]
+with open(path) as stream:
+    baseline = json.load(stream)
+baseline['boot_id'] = open('/proc/sys/kernel/random/boot_id').read().strip()
+baseline['recorded_at_jst'] = datetime.now(ZoneInfo('Asia/Tokyo')).isoformat()
+baseline['docker_start_monotonic'] = subprocess.check_output(
+    ['systemctl', 'show', 'docker', '--property=ExecMainStartTimestampMonotonic', '--value'],
+    text=True,
+).strip()
+baseline['container_ids'] = subprocess.check_output(
+    ['docker', 'ps', '-q', '--no-trunc', '--filter', 'label=com.docker.compose.project=homelab-ml-platform'],
+    text=True,
+).split() + subprocess.check_output(
+    ['docker', 'ps', '-q', '--no-trunc', '--filter', 'label=com.docker.compose.project=homelab-monitoring'],
+    text=True,
+).split()
+assert len(baseline['container_ids']) == 4
+temporary = path + '.tmp'
+with open(temporary, 'w', opener=lambda p, flags: os.open(p, flags, 0o600)) as stream:
+    json.dump(baseline, stream, indent=2)
+    stream.write('\n')
+os.replace(temporary, path)
+PY
+
 before=$(systemctl show docker --property=ExecMainStartTimestampMonotonic --value)
 systemctl restart docker
 after=$(systemctl show docker --property=ExecMainStartTimestampMonotonic --value)

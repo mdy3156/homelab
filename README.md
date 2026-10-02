@@ -26,6 +26,7 @@ MLflowからの接続は `postgres:5432` と `http://seaweedfs:8333` を使い�
 │   │   └── .env.example          # 変数名だけ・Git管理
 │   └── monitoring/               # Uptime Kumaのみ
 ├── scripts/                      # 導入・起動・検証・バックアップ
+├── systemd/                      # Docker起動前のLAN IPv4確認
 ├── docs/                         # 設計・ネットワーク・運用・検証
 ├── .runtime/                     # 検証run IDなど・Git除外
 ├── .gitignore
@@ -42,6 +43,7 @@ MLflowからの接続は `postgres:5432` と `http://seaweedfs:8333` を使い�
 
 VMを確認したうえで作成した [provision-host.sh](scripts/provision-host.sh) は、Docker公式APTリポジトリを登録し、Engine・Compose・Buildxを導入します。
 データ用ディレクトリを作成し、Dockerを自動起動させ、`mdy` をdockerグループに追加します。
+Dockerのsystemd drop-inで、公開portに使う192.168.0.8が存在するまで起動を待機します。
 既存データの所有権は変更せず、既存の競合パッケージがあれば停止します。
 
 ```bash
@@ -76,6 +78,7 @@ docker compose -f compose/monitoring/compose.yml stop
 
 `down` でコンテナを削除してもbind mountの実データは残りますが、次のVM起動ではコンテナが存在せず自動復旧しません。
 通常の運用はコンテナを起動したままにします。`unless-stopped` とDockerのsystemd自動起動により復旧します。
+Docker起動時には指定のLAN IPv4を待ち、MLflowは起動ごとにSQL/S3の準備を待ちます。
 ログは各コンテナ最大10MB × 3ファイルに制限します。
 
 ## 更新
@@ -115,7 +118,7 @@ secretを表示する `docker compose config` や `docker inspect` の全出力�
 | `docker: command not found` | 管理者権限で `provision-host.sh` を実行 |
 | Docker socket permission denied | SSH再接続、`id` のdockerグループを確認、または `sg docker -c 'docker ps'` |
 | bind mountのpermission denied | UID・permissionを確認。PostgreSQLは999、他のデータは1000。既存データを一律chmod/chownしない |
-| `Cannot assign requested address` | `ip -4 addr` で192.168.0.8を確認。Netplan/ルーターの変更は別途判断 |
+| `Cannot assign requested address` | `ip -4 addr` で192.168.0.8を確認。DockerのIPv4待機drop-inを `systemctl cat docker` で確認。失敗後に実networkが消えた場合はoperationsの復旧手順を使用 |
 | MLflow起動待ち | PostgreSQL・SeaweedFS healthとログを確認。起動時はSQL認証とS3 bucketを待機 |
 | MLflow Host/CORS拒否 | 指定のURLを利用。別のLAN hostnameを使う場合はallowed-hosts/originsへ限定的に追加 |
 | S3の403 | 未署名リクエストの403は正常。 `.env` のcredentialで署名し、endpointとpath-styleを確認 |

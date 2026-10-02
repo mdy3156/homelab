@@ -49,6 +49,7 @@ else
     docker compose version
 fi
 
+bash "$(dirname -- "${BASH_SOURCE[0]}")/install-boot-readiness.sh"
 systemctl enable --now docker.service containerd.service
 usermod -aG docker "$target_user"
 

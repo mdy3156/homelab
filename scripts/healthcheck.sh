@@ -33,16 +33,22 @@ mapfile -t containers <<< "$all_ids"
 docker inspect "${containers[@]}" | python3 -c '
 import json,sys
 expected={"postgres":{},"seaweedfs":{"8333/tcp":"8333"},"mlflow":{"5000/tcp":"5000"},"uptime-kuma":{"3001/tcp":"3001"}}
+networks={"postgres":{"homelab-ml-platform_database"},"seaweedfs":{"homelab-ml-platform_artifacts"},"mlflow":{"homelab-ml-platform_database","homelab-ml-platform_artifacts"},"uptime-kuma":{"homelab-monitoring_monitoring"}}
 for c in json.load(sys.stdin):
     service=c["Config"]["Labels"]["com.docker.compose.service"]
     bindings=c["HostConfig"]["PortBindings"] or {}
     assert set(bindings)==set(expected[service]), (service,bindings)
     for port,targets in bindings.items():
         assert targets==[{"HostIp":"192.168.0.8","HostPort":expected[service][port]}], (service,targets)
+    actual={port:targets for port,targets in (c["NetworkSettings"]["Ports"] or {}).items() if targets}
+    assert actual==bindings, (service,"effective published ports",actual,bindings)
+    connected=c["NetworkSettings"]["Networks"]
+    assert set(connected)==networks[service], (service,"effective networks",list(connected))
+    assert all(n["EndpointID"] and n["IPAddress"] for n in connected.values()), service
     assert not c["HostConfig"]["Privileged"], service
     assert c["HostConfig"]["NetworkMode"]!="host", service
     assert not any(m["Source"]=="/var/run/docker.sock" for m in c["Mounts"]), service
-print("Actual published ports and container isolation: OK")
+print("Effective published ports, network attachments and container isolation: OK")
 '
 if timeout 2 bash -c 'exec 3<>/dev/tcp/192.168.0.8/5432' 2>/dev/null; then
     echo 'Unexpected listener on LAN port 5432.' >&2; exit 1

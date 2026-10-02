@@ -8,6 +8,9 @@
 
 VMのinterfaceは `ens18`。検査時はIPv4がDHCP由来で、global IPv6も存在します。
 Netplan・DHCP・ルーターの設定は変更しません。将来IPが変わると明示bindの起動が失敗するため、このIPを維持できることを運用者が確認してください。
+Docker専用のsystemd ExecStartPreで192.168.0.8の存在を確認してからdaemonを起動します。
+異なるDHCPアドレスやIPv6だけでnetwork-online.targetに到達しても、LAN公開portの復元を始めません。
+この待機処理はIPを設定・変更しません。指定IPが割り当てられない場合はDocker起動を待機・再試行します。
 
 ## ホストへ公開するポート
 
@@ -48,5 +51,5 @@ curl -i http://192.168.0.8:8333/  # 403を期待
 nc -vz -w 2 192.168.0.8 5432    # 接続失敗を期待
 ```
 
-ホストのLAN IPへのHTTP到達、実際のDocker PortBindings、5432接続失敗はスクリプトで確認します。
+ホストのLAN IPへのHTTP到達、設定上と実際のDocker公開port・network attachment、5432接続失敗はスクリプトで確認します。
 別のLAN端末からの検証とInternet側からの検証は、その端末で別途行ってください。

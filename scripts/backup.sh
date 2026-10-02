@@ -53,7 +53,7 @@ resume_needed=true
 docker cp "$seaweed_id:/data/." - | gzip > "$output/seaweedfs.tar.gz"
 docker cp "$kuma_id:/app/data/." - | gzip > "$output/uptime-kuma.tar.gz"
 # Include the secret .env deliberately: all archive files are owner-only.
-tar -czf "$output/config.tar.gz" -C "$REPO_ROOT" compose scripts docs README.md .gitignore
+tar -czf "$output/config.tar.gz" -C "$REPO_ROOT" compose scripts systemd docs README.md .gitignore
 docker inspect --format '{{.Name}} {{.Config.Image}} {{.Image}}' \
     "$mlflow_id" "$seaweed_id" "$kuma_id" > "$output/images.txt"
 (cd -- "$output" && sha256sum postgres.dump seaweedfs.tar.gz uptime-kuma.tar.gz config.tar.gz > SHA256SUMS)

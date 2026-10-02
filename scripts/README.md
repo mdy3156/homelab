@@ -2,13 +2,15 @@
 
 | ファイル | 操作 | 権限 / 注意 |
 | --- | --- | --- |
-| `provision-host.sh` | Docker公式版導入・自動起動・mdyグループ追加・保存先作成 | sudo必須、既存データ・競合パッケージを上書きしない |
+| `provision-host.sh` | Docker公式版導入・IPv4起動待機・自動起動・mdyグループ追加・保存先作成 | sudo必須、既存データ・競合パッケージを上書きしない |
+| `install-boot-readiness.sh` | Docker起動前のIPv4確認helperとsystemd drop-inを導入 | sudo必須、既存の異なるファイルは上書きしない、Docker再起動は行わない |
+| `wait-lan-ip.sh` | 指定IPv4の存在を待機（default 192.168.0.8 / 120秒） | 読み取り専用、root所有のhelperとして導入 |
 | `start.sh` | 固定imageからMLflowをbuildし両スタックを起動、health待機 | dockerグループ |
 | `healthcheck.sh` | 全health、HTTP、未署名S3拒否、実際の公開portと安全設定 | dockerグループ、読み取り専用 |
 | `smoke-test.sh` | S3 CRUD・未認証拒否・MLflow param/metric/artifact・SQL/S3実データ照合 | dockerグループ、検証用run/objectを作成 |
 | `smoke-test.py` | MLflowコンテナ内で上記検証を実行 | shell wrapper経由 |
 | `wait-healthy.sh` | 起動操作をせずhealth回復を待機 | dockerグループ、最大約7.5分 |
-| `verify-restart-and-reboot.sh` | Docker daemonを再起動して元run/objectを検証し、成功後VMを再起動 | sudo必須、SSH/エディタ切断あり |
+| `verify-restart-and-reboot.sh` | IPv4起動待機を導入、daemon再起動で元run/objectを検証、成功後VM再起動 | sudo必須、SSH/エディタ切断あり、直前boot IDとcontainer IDも記録 |
 | `backup.sh` | SQL dump・停止中のSeaweedFS/Kuma全データ・configを保存して再開 | dockerグループ、一時停止あり |
 | `common.sh` | パスとComposeコマンドの共通定義 | 他のshell scriptからsource |
 

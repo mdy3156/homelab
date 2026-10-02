@@ -75,11 +75,32 @@ cat /proc/sys/kernel/random/boot_id
 
 daemon再起動は `sudo systemctl restart docker`、VM再起動は `sudo reboot` です。
 初回構築では、記録済み `.runtime/restart-baseline.json` を使い、`sudo bash scripts/verify-restart-and-reboot.sh` でdaemonの自動復旧と既存データを検証してからVMを再起動できます。
+このスクリプトはDockerのIPv4待機helper/drop-inを導入し、直前boot ID・container IDをbaselineへ記録します。
 このスクリプトは既存コンテナの `start/up` を実行せず、restart policyによる自動復旧を検査します。
 再接続後は `./scripts/wait-healthy.sh` で状態だけを待ち、保存済みrun IDのsmoke verifyを実行してください。
 再起動後の初回確認では `start.sh` を先に実行しないでください。自動復旧を検証できなくなります。
 Kumaの起動と既存dataも確認します。
 実施状況は [validation.md](validation.md) に記録し、daemon再起動・container再作成・VM再起動を区別します。
+
+## DockerのLAN公開が起動時に失われた場合
+
+`journalctl -u docker` に `failed to bind host port 192.168.0.8:...: cannot assign requested address` がある場合、起動時に指定IPv4が存在しなかった可能性があります。
+初回のVM再起動ではDHCPが192.168.0.2を割り当て、Dockerの公開port復元が失敗しました。その後、コンテナはrunningでも実network attachmentと公開portが欠けていました。
+`healthcheck.sh` はHTTPだけでなく、NetworkSettingsの実portとnetwork attachmentを確認して検出します。
+
+まず `ip -4 addr` で192.168.0.8の存在を確認し、管理者が `sudo bash scripts/install-boot-readiness.sh` を実行します。
+Netplan・ルーター等はこのスクリプトから変更しません。指定IPv4がない場合はその理由を別途調べます。
+既にnetwork attachmentが欠けている場合は、保存済みデータを維持したまま対象コンテナを再作成します。
+
+```bash
+docker compose -f compose/ml-platform/compose.yml up -d --no-deps --force-recreate --wait seaweedfs mlflow
+docker compose -f compose/monitoring/compose.yml up -d --force-recreate --wait
+./scripts/healthcheck.sh
+./scripts/smoke-test.sh --verify <保存済みRUN_ID>
+```
+
+再作成による復旧を確認した後、daemon・VMを実際に再起動し、自動復旧も検証します。
+手動で復旧した結果だけではVMの自動復旧成功とは記録しません。
 
 ## 更新とsecret変更
 

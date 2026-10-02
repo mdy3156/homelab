@@ -49,6 +49,9 @@ WebDAV・Iceberg・Lance・Admin UIは無効にし、miniが必要とする内�
 認証・S3 CRUD・MLflow proxyとの実際の互換性はsmoke testで確認します。
 
 全serviceは `unless-stopped`。Dockerはsystemdでenabledにします。
+DockerのExecStartPreで公開portのbind先192.168.0.8を待ちます。一般のnetwork-online.targetだけでは、そのIPv4の存在を保証できません。
+helperは `/usr/local/libexec/homelab-wait-lan-ip`、設定は `/etc/systemd/system/docker.service.d/20-homelab-lan-ip.conf` へroot所有で導入します。
+120秒でアドレスが得られなければDockerの起動を失敗させ、既存systemd restart設定により再試行します。
 Composeの起動時依存順はdaemon再起動時には保証されないため、MLflow entrypointは毎回SQL/S3を待機します。
 healthcheck failureだけではDockerは自動再起動しません。プロセス終了時のrestart policyと、異常検知後の運用対応を区別します。
 
